@@ -5,6 +5,7 @@ import os
 from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta
 import json
+import time
 
 load_dotenv()
 token = os.getenv("TOKEN")
@@ -70,7 +71,7 @@ ron_copypasta = [
 ]
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-
+bot.remove_command("help")
 
 @bot.event
 async def on_ready():
@@ -103,7 +104,6 @@ except (FileNotFoundError, json.JSONDecodeError):  # Handle missing file or bad 
     tracked_users = {}
     users = []
 
-print(tracked_users)
 print(users)
 
 @bot.command()
@@ -351,5 +351,17 @@ async def tracked(ctx, *, query: str = None):
 
     await ctx.send(embed=embed)
 
+SPAM_USER = os.getenv("SPAM_USER")
+@bot.command()
+async def spam(ctx):
+    username = SPAM_USER
+    user = discord.utils.get(ctx.guild.members, name=username)
+    
+    if user:
+        for i in range(10):
+            time.sleep(0.5)
+            await ctx.send(f"{user.mention} answer dog")
+    else:
+        await ctx.send(embed=discord.Embed(title="User not found!", description="User not found!"))
 
 bot.run(token)
