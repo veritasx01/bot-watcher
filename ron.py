@@ -53,6 +53,20 @@ ron_copypasta = [
     "Some say Ron has no weaknesses. Others are too afraid to ask.",
     "You don’t meet Ron… Ron meets you.",
     "Long ago, the elders spoke of a being known only as… Ron.",
+    "When Ron does push-ups, the Earth moves out of his way.",
+    "Ron doesn’t do cardio; cardio does Ron.",
+    "Legends say that when Ron stares at the sun, the sun hides in awe.",
+    "Ron once roundhouse kicked a black hole, and the universe still orbits in respect.",
+    "When Ron enters a room, the lights brighten in admiration.",
+    "Ron doesn't need a mirror because he is the standard of perfection.",
+    "Even the clock stops ticking when Ron makes an entrance.",
+    "Ron’s name is in the dictionary—and it's defined as 'unstoppable.'",
+    "Ron doesn't just break the rules; he rewrites them.",
+    "Ron doesn't need a cape to be a hero; his presence alone inspires legends.",
+    "The bravest warriors consult Ron before charging into battle.",
+    "Ron once whispered to the wind, and the breeze carried his legend across the globe.",
+    "Even gravity takes a break when Ron is around.",
+    "When Ron nods, the entire universe listens."
 ]
 
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -137,6 +151,12 @@ async def listen(ctx, *, query: str = None):
         embed.description = "Listening successful"
         await ctx.send(embed=embed)
 
+status_emojis = {
+    "online": "🟢",
+    "idle": "🟡",
+    "dnd": "🔴",
+    "offline": "⚫",
+}
 
 @bot.command()
 async def show(ctx, *, query: str = None, show_all: bool = False):
@@ -162,6 +182,7 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
             lambda m: m.name.lower() == query_clean.lower() or m.display_name.lower() == query_clean.lower(),
             ctx.guild.members,
         )
+        
     if member is None:
         embed.title = "Couldn't find that user, bro!"
         embed.description = "User not found"
@@ -173,6 +194,7 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
         embed.description = "User not tracked"
         await ctx.send(embed=embed)
         return
+    
     changes = tracked_users[member.id]
     if not changes:
         embed.color = discord.Colour.yellow()
@@ -184,8 +206,13 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
     embed = discord.Embed()
     message_lines = []
     for timestamp, old_status, new_status in changes:
-        time_str = timestamp
-        message_lines.append(f"{time_str}: {old_status} -> {new_status}")
+        old_icon = status_emojis.get(old_status, "")
+        new_icon = status_emojis.get(new_status, "")
+        timestamp_clean = timestamp.replace("UTC", "").strip()
+        dt = datetime.strptime(timestamp_clean, "%Y-%m-%d %H:%M:%S %z")
+        formatted_timestamp = dt.strftime("%Y-%m-%d %H:%M")
+        line = f"{formatted_timestamp}: {old_icon} {old_status} → {new_icon} {new_status}"
+        message_lines.append(line)
     message_lines = reversed(message_lines)
     message_str = "\n".join(message_lines)
     message_send = message_str
@@ -210,6 +237,11 @@ async def showall(ctx,*,query:str = None):
 async def on_presence_update(before: discord.Member, after: discord.Member):
     if after.id not in tracked_users:
         return
+    if tracked_users[after.id]:
+        last_status = tracked_users[after.id][-1][2]  
+        if last_status == str(after.status):
+            return  
+        
     if before.status != after.status:
         timestamp = datetime.now(timezone(timedelta(hours=2)))
         tracked_users[after.id].append((timestamp.strftime("%Y-%m-%d %H:%M:%S %Z"), str(before.status), str(after.status)))
