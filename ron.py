@@ -77,10 +77,20 @@ async def ron(ctx):
     """Send a random Ron copypasta."""
     await ctx.send(random.choice(ron_copypasta))
 
+HISTORY = "history.json"
 
-tracked_users = {}
-users = []
+try:
+    with open(HISTORY, "r") as f:  # Open in read mode
+        his_json = json.load(f)
+        #tracked_users = his_json.get("tracked_users", {})  # Use .get() to avoid KeyError
+        tracked_users = {int(k): v for k, v in his_json.get("tracked_users", {}).items()}
+        users = his_json.get("users", [])
+except (FileNotFoundError, json.JSONDecodeError):  # Handle missing file or bad JSON
+    tracked_users = {}
+    users = []
 
+print(tracked_users)
+print(users)
 
 @bot.command()
 async def listen(ctx, *, query: str = None):
@@ -163,7 +173,6 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
         embed.description = "User not tracked"
         await ctx.send(embed=embed)
         return
-
     changes = tracked_users[member.id]
     if not changes:
         embed.color = discord.Colour.yellow()
@@ -175,7 +184,8 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
     embed = discord.Embed()
     message_lines = []
     for timestamp, old_status, new_status in changes:
-        time_str = timestamp.strftime("%Y-%m-%d %H:%M:%S %Z")
+        #time_str = timestamp.strftime("%Y-%m-%d %H:%M:%S %Z")
+        time_str = timestamp
         message_lines.append(f"{time_str}: {old_status} -> {new_status}")
     message_lines = reversed(message_lines)
     message_str = "\n".join(message_lines)
@@ -188,7 +198,10 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
         embed.title=f"Showing all status changes for {member.display_name}"
     embed.description=message_send
     await ctx.send(embed=embed)
-    # await ctx.send("\n".join(message_lines))
+    his_json = {"tracked_users": tracked_users,"users": users}
+    with open(HISTORY,"w") as fp:
+        print("saved")
+        json.dump(his_json,fp)
 
 @bot.command()
 async def showall(ctx,*,query:str = None):
@@ -206,8 +219,12 @@ async def on_presence_update(before: discord.Member, after: discord.Member):
                     return
 
             timestamp = datetime.now(timezone(timedelta(hours=2)))
-            tracked_users[after.id].append((timestamp, before.status, after.status))
+            tracked_users[after.id].append((timestamp.strftime("%Y-%m-%d %H:%M:%S %Z"), before.status, after.status))
             print(f"Recorded change for {after.display_name}: {before.status} -> {after.status} at {timestamp}")
+            his_json = {"tracked_users": tracked_users,"users": users}
+            with open(HISTORY,"w") as fp:
+                print("saved")
+                json.dump(his_json,fp)
 
 
 @listen.error
