@@ -186,12 +186,17 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
     for timestamp, old_status, new_status in changes:
         #time_str = timestamp.strftime("%Y-%m-%d %H:%M:%S %Z")
         time_str = timestamp
+        try:
+            old_status = old_status[0]
+            new_status = new_status[0]
+        except:
+            pass
         message_lines.append(f"{time_str}: {old_status} -> {new_status}")
     message_lines = reversed(message_lines)
     message_str = "\n".join(message_lines)
     message_send = message_str
     embed.color=0x61DBFB
-    if not all:
+    if not show_all:
         message_send = "\n".join(message_str.split("\n")[:10])
         embed.title=f"Showing last 10 status changes for {member.display_name}"
     else:
@@ -200,7 +205,6 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
     await ctx.send(embed=embed)
     his_json = {"tracked_users": tracked_users,"users": users}
     with open(HISTORY,"w") as fp:
-        print("saved")
         json.dump(his_json,fp)
 
 @bot.command()
@@ -223,7 +227,6 @@ async def on_presence_update(before: discord.Member, after: discord.Member):
             print(f"Recorded change for {after.display_name}: {before.status} -> {after.status} at {timestamp}")
             his_json = {"tracked_users": tracked_users,"users": users}
             with open(HISTORY,"w") as fp:
-                print("saved")
                 json.dump(his_json,fp)
 
 
