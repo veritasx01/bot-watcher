@@ -82,9 +82,9 @@ HISTORY = "history.json"
 try:
     with open(HISTORY, "r") as f:  # Open in read mode
         his_json = json.load(f)
-        #tracked_users = his_json.get("tracked_users", {})  # Use .get() to avoid KeyError
         tracked_users = {int(k): v for k, v in his_json.get("tracked_users", {}).items()}
         users = his_json.get("users", [])
+        
 except (FileNotFoundError, json.JSONDecodeError):  # Handle missing file or bad JSON
     tracked_users = {}
     users = []
@@ -184,13 +184,7 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
     embed = discord.Embed()
     message_lines = []
     for timestamp, old_status, new_status in changes:
-        #time_str = timestamp.strftime("%Y-%m-%d %H:%M:%S %Z")
         time_str = timestamp
-        try:
-            old_status = old_status[0]
-            new_status = new_status[0]
-        except:
-            pass
         message_lines.append(f"{time_str}: {old_status} -> {new_status}")
     message_lines = reversed(message_lines)
     message_str = "\n".join(message_lines)
@@ -214,20 +208,16 @@ async def showall(ctx,*,query:str = None):
 
 @bot.event
 async def on_presence_update(before: discord.Member, after: discord.Member):
-    if after.id in tracked_users:
-        if before.status != after.status:
-            if tracked_users[after.id]:
-                last_timestamp, last_before, last_after = tracked_users[after.id][-1]
-                if last_before == before.status and last_after == after.status:
-                    # weird fix because two events at the same time
-                    return
-
-            timestamp = datetime.now(timezone(timedelta(hours=2)))
-            tracked_users[after.id].append((timestamp.strftime("%Y-%m-%d %H:%M:%S %Z"), before.status, after.status))
-            print(f"Recorded change for {after.display_name}: {before.status} -> {after.status} at {timestamp}")
-            his_json = {"tracked_users": tracked_users,"users": users}
-            with open(HISTORY,"w") as fp:
-                json.dump(his_json,fp)
+    if after.id not in tracked_users:
+        return
+    if before.status != after.status:
+        timestamp = datetime.now(timezone(timedelta(hours=2)))
+        tracked_users[after.id].append((timestamp.strftime("%Y-%m-%d %H:%M:%S %Z"), str(before.status), str(after.status)))
+        print(tracked_users[after.id][-1])
+        print(f"Recorded change for {after.display_name}: {before.status} -> {after.status} at {timestamp}")
+        his_json = {"tracked_users": tracked_users,"users": users}
+        with open(HISTORY,"w") as fp:
+            json.dump(his_json,fp)
 
 
 @listen.error
