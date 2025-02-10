@@ -1,6 +1,6 @@
 import discord
 import random
-from discord.ext import commands
+from discord.ext import commands, tasks
 import os
 from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta
@@ -76,6 +76,7 @@ bot.remove_command("help")
 @bot.event
 async def on_ready():
     print(f"We have logged in as {bot.user}")
+    cleanup.start()
 
 
 @bot.event
@@ -363,5 +364,22 @@ async def spam(ctx):
             await ctx.send(f"{user.mention} answer dog")
     else:
         await ctx.send(embed=discord.Embed(title="User not found!", description="User not found!"))
+
+@tasks.loop(hours=6)
+async def cleanup():
+    tz = timezone(timedelta(hours=2))
+    now = datetime.now(tz)
+    three_days_ago = now - timedelta(days=3)
+    
+    for user_id, entries in tracked_users.items():
+        tracked_users[user_id] = [
+            entry for entry in entries
+            if datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z") >= three_days_ago
+        ]
+        
+    his_json = {"tracked_users": tracked_users,"users": users}
+    with open(HISTORY,"w") as fp:
+        json.dump(his_json,fp)
+    print("Clean Finished")
 
 bot.run(token)
