@@ -78,6 +78,7 @@ bot.remove_command("help")
 async def on_ready():
     print(f"We have logged in as {bot.user}")
     cleanup.start()
+    size_limit.start()
 
 
 @bot.event
@@ -138,6 +139,14 @@ async def listen(ctx, *, query: str = None):
     if member is None:
         embed.title = "Couldn't find that user, bro!"
         embed.description = "User not found"
+        await ctx.send(embed=embed)
+        return
+    
+    if member.bot:
+        # we refuse to listen to bots because they open up the possibility of a bot status spam attack
+        # and who the hell would want to track a bot's status anyways XD
+        embed.title = "Cannot track a bot user"
+        embed.description = "Bot user untrackable"
         await ctx.send(embed=embed)
         return
 
@@ -230,6 +239,7 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
         embed.title = f"Showing last 10 status changes for {member.display_name}"
     else:
         embed.title = f"Showing all status changes for {member.display_name}"
+        
     embed.description = message_send
     await ctx.send(embed=embed)
     his_json = {"tracked_users": tracked_users, "users": users}
@@ -385,16 +395,39 @@ async def cleanup():
     tz = timezone(timedelta(hours=2))
     now = datetime.now(tz)
     three_days_ago = now - timedelta(days=3)
-
+    before_size = os.path.getsize(HISTORY)
     for user_id, entries in tracked_users.items():
         tracked_users[user_id] = [
             entry for entry in entries if datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z") >= three_days_ago
         ]
-
     his_json = {"tracked_users": tracked_users, "users": users}
     with open(HISTORY, "w") as fp:
         json.dump(his_json, fp)
-    print("Clean Finished")
+    after_size = os.path.getsize(HISTORY)
+    diff = before_size-after_size
+    print(f"Cleanup Finished, {diff} bytes deleted.")
 
-
+@tasks.loop(minutes=15)
+async def size_limit():
+    """Limit history size to 20mb"""
+    # if you're scaling this bot you can put your data limit check in on_presence_change
+    # which will prevent a potential attacker from adding statuses and overflowing your history file
+    file_size = os.path.getsize(HISTORY)
+    twenty_megabytes = 20_000_000
+    if file_size < twenty_megabytes:
+        print(f"No Size Limit needed, history is {file_size/1_000_000} megabytes")
+        return
+    
+    before_size = os.path.getsize(HISTORY)
+    for user_id, entries in tracked_users.items():
+        m = len(entries)//2
+        tracked_users[user_id] = [entries[m:]]
+        
+    his_json = {"tracked_users": tracked_users, "users": users}
+    with open(HISTORY, "w") as fp:
+        json.dump(his_json, fp)
+    after_size = os.path.getsize(HISTORY)
+    diff = before_size-after_size
+    print(f"Size Limit Finished, {diff} bytes deleted.")
+    
 bot.run(token)
