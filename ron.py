@@ -67,11 +67,12 @@ ron_copypasta = [
     "The bravest warriors consult Ron before charging into battle.",
     "Ron once whispered to the wind, and the breeze carried his legend across the globe.",
     "Even gravity takes a break when Ron is around.",
-    "When Ron nods, the entire universe listens."
+    "When Ron nods, the entire universe listens.",
 ]
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.remove_command("help")
+
 
 @bot.event
 async def on_ready():
@@ -93,6 +94,7 @@ async def ron(ctx):
     """Send a random Ron copypasta."""
     await ctx.send(random.choice(ron_copypasta))
 
+
 HISTORY = "history.json"
 
 try:
@@ -100,12 +102,13 @@ try:
         his_json = json.load(f)
         tracked_users = {int(k): v for k, v in his_json.get("tracked_users", {}).items()}
         users = his_json.get("users", [])
-        
+
 except (FileNotFoundError, json.JSONDecodeError):  # Handle missing file or bad JSON
     tracked_users = {}
     users = []
 
 print(users)
+
 
 @bot.command()
 async def listen(ctx, *, query: str = None):
@@ -152,12 +155,14 @@ async def listen(ctx, *, query: str = None):
         embed.description = "Listening successful"
         await ctx.send(embed=embed)
 
+
 status_emojis = {
     "online": "🟢",
     "idle": "🟡",
     "dnd": "🔴",
     "offline": "⚫",
 }
+
 
 @bot.command()
 async def show(ctx, *, query: str = None, show_all: bool = False):
@@ -183,7 +188,7 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
             lambda m: m.name.lower() == query_clean.lower() or m.display_name.lower() == query_clean.lower(),
             ctx.guild.members,
         )
-        
+
     if member is None:
         embed.title = "Couldn't find that user, bro!"
         embed.description = "User not found"
@@ -195,7 +200,7 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
         embed.description = "User not tracked"
         await ctx.send(embed=embed)
         return
-    
+
     changes = tracked_users[member.id]
     if not changes:
         embed.color = discord.Colour.yellow()
@@ -214,43 +219,49 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
         formatted_timestamp = dt.strftime("%Y-%m-%d %H:%M")
         line = f"{formatted_timestamp}: {old_icon} {old_status} → {new_icon} {new_status}"
         message_lines.append(line)
+
     message_lines = reversed(message_lines)
     message_str = "\n".join(message_lines)
     message_send = message_str
-    embed.color=0x61DBFB
+    embed.color = 0x61DBFB
+    
     if not show_all:
         message_send = "\n".join(message_str.split("\n")[:10])
-        embed.title=f"Showing last 10 status changes for {member.display_name}"
+        embed.title = f"Showing last 10 status changes for {member.display_name}"
     else:
-        embed.title=f"Showing all status changes for {member.display_name}"
-    embed.description=message_send
+        embed.title = f"Showing all status changes for {member.display_name}"
+    embed.description = message_send
     await ctx.send(embed=embed)
-    his_json = {"tracked_users": tracked_users,"users": users}
-    with open(HISTORY,"w") as fp:
-        json.dump(his_json,fp)
+    his_json = {"tracked_users": tracked_users, "users": users}
+    with open(HISTORY, "w") as fp:
+        json.dump(his_json, fp)
+
 
 @bot.command()
-async def showall(ctx,*,query:str = None):
+async def showall(ctx, *, query: str = None):
     """Shows the full status history of a user"""
-    await show(ctx,query=query,show_all=True)
+    await show(ctx, query=query, show_all=True)
+
 
 @bot.event
 async def on_presence_update(before: discord.Member, after: discord.Member):
     if after.id not in tracked_users:
         return
     if tracked_users[after.id]:
-        last_status = tracked_users[after.id][-1][2]  
+        last_status = tracked_users[after.id][-1][2]
         if last_status == str(after.status):
-            return  
-        
+            return
+
     if before.status != after.status:
         timestamp = datetime.now(timezone(timedelta(hours=2)))
-        tracked_users[after.id].append((timestamp.strftime("%Y-%m-%d %H:%M:%S %Z"), str(before.status), str(after.status)))
+        tracked_users[after.id].append(
+            (timestamp.strftime("%Y-%m-%d %H:%M:%S %Z"), str(before.status), str(after.status))
+        )
         print(tracked_users[after.id][-1])
         print(f"Recorded change for {after.display_name}: {before.status} -> {after.status} at {timestamp}")
-        his_json = {"tracked_users": tracked_users,"users": users}
-        with open(HISTORY,"w") as fp:
-            json.dump(his_json,fp)
+        his_json = {"tracked_users": tracked_users, "users": users}
+        with open(HISTORY, "w") as fp:
+            json.dump(his_json, fp)
 
 
 @listen.error
@@ -352,12 +363,15 @@ async def tracked(ctx, *, query: str = None):
 
     await ctx.send(embed=embed)
 
+
 SPAM_USER = os.getenv("SPAM_USER")
+
+
 @bot.command()
 async def spam(ctx):
     username = SPAM_USER
     user = discord.utils.get(ctx.guild.members, name=username)
-    
+
     if user:
         for i in range(10):
             time.sleep(0.5)
@@ -365,21 +379,22 @@ async def spam(ctx):
     else:
         await ctx.send(embed=discord.Embed(title="User not found!", description="User not found!"))
 
+
 @tasks.loop(hours=6)
 async def cleanup():
     tz = timezone(timedelta(hours=2))
     now = datetime.now(tz)
     three_days_ago = now - timedelta(days=3)
-    
+
     for user_id, entries in tracked_users.items():
         tracked_users[user_id] = [
-            entry for entry in entries
-            if datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z") >= three_days_ago
+            entry for entry in entries if datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z") >= three_days_ago
         ]
-        
-    his_json = {"tracked_users": tracked_users,"users": users}
-    with open(HISTORY,"w") as fp:
-        json.dump(his_json,fp)
+
+    his_json = {"tracked_users": tracked_users, "users": users}
+    with open(HISTORY, "w") as fp:
+        json.dump(his_json, fp)
     print("Clean Finished")
+
 
 bot.run(token)
