@@ -141,7 +141,7 @@ async def listen(ctx, *, query: str = None):
         embed.description = "User not found"
         await ctx.send(embed=embed)
         return
-    
+
     if member.bot:
         # we refuse to listen to bots because they open up the possibility of a bot status spam attack
         # and who the hell would want to track a bot's status anyways XD
@@ -150,7 +150,7 @@ async def listen(ctx, *, query: str = None):
         await ctx.send(embed=embed)
         return
 
-    if member.id in tracked_users:
+    if member.name in users:
         embed.color = discord.Colour.dark_blue()
         embed.title = f"I'm already tracking {member.display_name}!"
         embed.description = "User already tracked"
@@ -162,8 +162,23 @@ async def listen(ctx, *, query: str = None):
         embed.color = discord.Colour.green()
         embed.title = f"Now listening to {member.display_name}'s status changes!"
         embed.description = "Listening successful"
+        his_json = {"tracked_users": tracked_users, "users": users}
+        with open(HISTORY, "w") as fp:
+            json.dump(his_json, fp)
         await ctx.send(embed=embed)
 
+@listen.error
+async def listen_error(ctx, error):
+    # if listen fails to find user raise this error
+    embed = discord.Embed(
+        title="Member not found. Please mention a valid member!",
+        color=discord.Colour.red(),
+        description="Member not found",
+    )
+    if isinstance(error, commands.BadArgument):
+        await ctx.send(embed=embed)
+    else:
+        raise error
 
 status_emojis = {
     "online": "🟢",
@@ -199,12 +214,12 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
         )
 
     if member is None:
-        embed.title = "Couldn't find that user, bro!"
+        embed.title = "Couldn't find that user!"
         embed.description = "User not found"
         await ctx.send(embed=embed)
         return
 
-    if member.id not in tracked_users:
+    if not any(member.name == user[0] for user in users):
         embed.title = f"I'm not tracking {member.display_name}. Use !listen first!"
         embed.description = "User not tracked"
         await ctx.send(embed=embed)
@@ -233,13 +248,13 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
     message_str = "\n".join(message_lines)
     message_send = message_str
     embed.color = 0x61DBFB
-    
+
     if not show_all:
         message_send = "\n".join(message_str.split("\n")[:10])
         embed.title = f"Showing last 10 status changes for {member.display_name}"
     else:
         embed.title = f"Showing all status changes for {member.display_name}"
-        
+
     embed.description = message_send
     await ctx.send(embed=embed)
     his_json = {"tracked_users": tracked_users, "users": users}
@@ -248,11 +263,68 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
 
 
 @bot.command()
-async def showall(ctx, *, query: str = None):
+async def showall(ctx,*,query: str = None):
     """Shows the full status history of a user"""
     await show(ctx, query=query, show_all=True)
 
 
+@bot.command()
+async def stop(ctx, *, query: str = None):
+    """stop listening to a user"""
+    embed = discord.Embed()
+    embed.color = discord.Colour.blurple()
+    embed.title = "∅"
+    embed.description = "leo will call this for sure"
+    await ctx.send(embed=embed)
+    return
+    member = None
+    try:
+        member = await commands.MemberConverter().convert(ctx, query)
+    except commands.BadArgument:
+        # Conversion failed, so we'll try a manual lookup
+        query_clean = query.strip()
+        if query_clean.startswith("\\@"):
+            query_clean = query_clean[2:]
+        elif query_clean.startswith("@"):
+            query_clean = query_clean[1:]
+        member = discord.utils.find(
+            lambda m: m.name.lower() == query_clean.lower() or m.display_name.lower() == query_clean.lower(),
+            ctx.guild.members,
+        )
+        
+    if member is None:
+        embed.color = discord.Colour.red()
+        embed.title = "Failed to find user"
+        embed.description = "failed to locate user"
+        await ctx.send(embed=embed)
+        return
+    global users
+    try:
+        users = [user for user in users if user[0] != str(member.name)]
+        his_json = {"tracked_users": tracked_users, "users": users}
+        with open(HISTORY, "w") as fp:
+            json.dump(his_json, fp)
+            
+    except Exception as e:
+        embed.color = discord.Colour.red()
+        embed.title = "Failed to find user"
+        embed.description = f"save error\n{e}"
+        await ctx.send(embed=embed)
+        return
+    
+    embed.color = discord.Colour.yellow()
+    embed.title = "removed user"
+    embed.description = "successfully to removed user"
+    await ctx.send(embed=embed)
+       
+@stop.error
+async def stop_error(ctx, error):
+    embed = discord.Embed()
+    embed.color = discord.Colour.red()
+    embed.title = "Failed to find user"
+    embed.description = "invalid user"
+    await ctx.send(embed=embed)
+    
 @bot.event
 async def on_presence_update(before: discord.Member, after: discord.Member):
     if after.id not in tracked_users:
@@ -274,18 +346,6 @@ async def on_presence_update(before: discord.Member, after: discord.Member):
             json.dump(his_json, fp)
 
 
-@listen.error
-async def listen_error(ctx, error):
-    # if listen fails to find user raise this error
-    embed = discord.Embed(
-        title="Member not found. Please mention a valid member!",
-        color=discord.Colour.red(),
-        description="Member not found",
-    )
-    if isinstance(error, commands.BadArgument):
-        await ctx.send(embed=embed)
-    else:
-        raise error
 
 
 @bot.command()
@@ -404,8 +464,9 @@ async def cleanup():
     with open(HISTORY, "w") as fp:
         json.dump(his_json, fp)
     after_size = os.path.getsize(HISTORY)
-    diff = before_size-after_size
+    diff = before_size - after_size
     print(f"Cleanup Finished, {diff} bytes deleted.")
+
 
 @tasks.loop(minutes=15)
 async def size_limit():
@@ -417,17 +478,18 @@ async def size_limit():
     if file_size < twenty_megabytes:
         print(f"No Size Limit needed, history is {file_size/1_000_000} megabytes")
         return
-    
+
     before_size = os.path.getsize(HISTORY)
     for user_id, entries in tracked_users.items():
-        m = len(entries)//2
+        m = len(entries) // 2
         tracked_users[user_id] = [entries[m:]]
-        
+
     his_json = {"tracked_users": tracked_users, "users": users}
     with open(HISTORY, "w") as fp:
         json.dump(his_json, fp)
     after_size = os.path.getsize(HISTORY)
-    diff = before_size-after_size
+    diff = before_size - after_size
     print(f"Size Limit Finished, {diff} bytes deleted.")
-    
+
+
 bot.run(token)
