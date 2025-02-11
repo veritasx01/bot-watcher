@@ -184,48 +184,41 @@ async def daygraph(ctx, *, query):
     one_day_ago = now - timedelta(days=1)
     entries = tracked_users.get(member.id, [])
     day_entries = [entry for entry in entries if datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z") >= one_day_ago]
-    
+
     day_entries = [
-        entry for entry in entries 
-        if datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z") >= one_day_ago
+        entry
+        for entry in entries
+        if datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z").astimezone(tz) >= one_day_ago
     ]
 
-    # if there are no entries, notify
+    # if there are no entries, notify user
     if not day_entries:
-        await ctx.send(embed=discord.Embed(title="No status data for the last 24 hours."))
+        await ctx.send(
+            embed=discord.Embed(title="No status data for the last 24 hours.", color=discord.Colour.blurple),
+        )
         return
 
     # sorting precaution, data should be already sorted but we sort it anyways
     day_entries.sort(key=lambda x: datetime.strptime(x[0], "%Y-%m-%d %H:%M:%S UTC%z"))
 
-    time_values = [
-        datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z") for entry in day_entries
-    ]
+    time_values = [datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z").astimezone(tz) for entry in day_entries]
     states = []
     for entry in day_entries:
-        states.append(inv_state_labels[entry[1]])
-    
-    print(states)
+        states.append(inv_state_labels[entry[2]])
 
     plt.figure(figsize=(12, 5))
     plt.step(time_values, states, where="post", linestyle="--", color="black", alpha=0.7)
 
     # plot points
     for i in range(len(time_values)):
-        plt.scatter(time_values[i], states[i],
-                    color=state_colors[states[i]],
-                    s=100, edgecolors="black", zorder=3)
+        plt.scatter(time_values[i], states[i], color=state_colors[states[i]], s=100, edgecolors="black", zorder=3)
 
-    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-    plt.gca().xaxis.set_major_locator(mdates.HourLocator(interval=1))
-    
-    plt.grid(axis="y", linestyle="--", alpha=0.7)
-    
+    ax = plt.gca()
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=tz))
+    #ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
+    ax.xaxis.set_major_locator(mdates.MinuteLocator(byminute=[0, 30]))
     plt.xticks(rotation=45)
-    
-    # set the y-axis ticks.
-    # we explicitly create a sorted (and non-empty) list of tick positions.
-    # (Sorting in reverse order so that “online” (3) appears at the top.)
+
     ytick_positions = sorted(state_labels.keys(), reverse=True)
     ytick_labels = [state_labels[k] for k in ytick_positions]
     plt.yticks(ytick_positions, ytick_labels)
@@ -234,7 +227,7 @@ async def daygraph(ctx, *, query):
     plt.ylabel("Status")
     plt.title("Discord Status Changes Over 24 Hours")
     plt.grid(axis="y", linestyle="--", alpha=0.7)
-    
+
     plt.savefig("fig.png")
     plt.close()
 
