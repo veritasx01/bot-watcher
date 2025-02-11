@@ -10,7 +10,6 @@ from misc import Miscellaneous
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
 HISTORY = "history.json"
-SPAM_USER = os.getenv("SPAM_USER")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -97,7 +96,8 @@ async def listen(ctx, *, query: str = None):
         await ctx.send(embed=embed)
     else:
         # start tracking this username and userid
-        tracked_users[member.id] = []
+        if member.id not in tracked_users:
+            tracked_users[member.id] = []
         users.append([member.name, member.display_name])
         embed.color = discord.Colour.green()
         embed.title = f"Now listening to {member.display_name}'s status changes!"
@@ -240,7 +240,7 @@ async def stop(ctx, *, query: str = None):
         embed.description = "failed to locate user"
         await ctx.send(embed=embed)
         return
-    
+
     global users
     try:
         users = [user for user in users if user[0] != str(member.name)]
@@ -305,7 +305,7 @@ async def listenall(ctx):
     for member in guild.members:
         if member.bot:  # Skip bots
             continue
-        if member.id not in tracked_users:
+        if not any(member.name == user[0] for user in users):
             await listen(ctx, query=member.name)
             count += 1
 
@@ -375,19 +375,6 @@ async def tracked(ctx, *, query: str = None):
         embed.color = discord.Colour.red()
 
     await ctx.send(embed=embed)
-
-
-@bot.command()
-async def spam(ctx):
-    username = SPAM_USER
-    user = discord.utils.get(ctx.guild.members, name=username)
-
-    if user:
-        for i in range(10):
-            time.sleep(0.5)
-            await ctx.send(f"{user.mention} answer dog")
-    else:
-        await ctx.send(embed=discord.Embed(title="User not found!", description="User not found!"))
 
 
 @tasks.loop(hours=6)
