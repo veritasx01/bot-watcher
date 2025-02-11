@@ -4,8 +4,16 @@ import os
 from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta
 import json
-import time
 from misc import Miscellaneous
+from util import (
+    find_user,
+    EMBED_BOT_USER,
+    EMBED_ALREADY_TRACKED,
+    EMBED_USER_NOT_FOUND,
+    EMBED_NON_USER,
+    EMBED_USER_TRACKED,
+    EMBED_USER_NOT_TRACKED,
+)
 
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
@@ -17,7 +25,33 @@ intents.dm_messages = True
 intents.presences = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
-bot.remove_command("help")
+#bot.remove_command("help")
+
+status_emojis = {
+    "online": "🟢",
+    "idle": "🟡",
+    "dnd": "🔴",
+    "offline": "⚫",
+}
+
+status_values = {
+    "online": 3,
+    "idle": 2,
+    "dnd": 1,
+    "offline": 0,
+}
+
+try:
+    with open(HISTORY, "r") as f:  # Open in read mode
+        his_json = json.load(f)
+        tracked_users = {int(k): v for k, v in his_json.get("tracked_users", {}).items()}
+        users = his_json.get("users", [])
+
+except (FileNotFoundError, json.JSONDecodeError):  # Handle missing file or bad JSON
+    tracked_users = {}
+    users = []
+
+print(users)
 
 
 @bot.event
@@ -37,97 +71,47 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
-try:
-    with open(HISTORY, "r") as f:  # Open in read mode
-        his_json = json.load(f)
-        tracked_users = {int(k): v for k, v in his_json.get("tracked_users", {}).items()}
-        users = his_json.get("users", [])
-
-except (FileNotFoundError, json.JSONDecodeError):  # Handle missing file or bad JSON
-    tracked_users = {}
-    users = []
-
-print(users)
-
-
 @bot.command()
 async def listen(ctx, *, query: str = None):
     """Listens to the presence of a user by mention or plain username."""
     embed = discord.Embed(color=discord.Colour.red())
     if query is None:
-        embed.title = "Yo, you gotta specify a valid member to listen to!"
-        embed.description = "invalid member"
-        await ctx.send(embed=embed)
+        await ctx.send(embed=EMBED_INVALID_USER)
         return
 
-    member = None
-    try:
-        member = await commands.MemberConverter().convert(ctx, query)
-    except commands.BadArgument:
-        # conversion failed, manual lookup
-        query_clean = query.strip()
-        if query_clean.startswith("\\@"):
-            query_clean = query_clean[2:]
-        elif query_clean.startswith("@"):
-            query_clean = query_clean[1:]
-        member = discord.utils.find(
-            lambda m: m.name.lower() == query_clean.lower() or m.display_name.lower() == query_clean.lower(),
-            ctx.guild.members,
-        )
-
+    member = await find_user(ctx, query=query)
     if member is None:
-        embed.title = "Couldn't find that user, bro!"
-        embed.description = "User not found"
-        await ctx.send(embed=embed)
+        await ctx.send(embed=EMBED_USER_NOT_FOUND)
         return
 
     if member.bot:
         # we refuse to listen to bots because they open up the possibility of a bot status spam attack
         # and who the hell would want to track a bot's status anyways XD
-        embed.title = "Cannot track a bot user"
-        embed.description = "Bot user untrackable"
+        await ctx.send(embed=EMBED_BOT_USER)
+        return
+
+    if any(member.name == user[0] for user in users):
+        embed = EMBED_ALREADY_TRACKED
+        embed.title = f"I'm already tracking {member.display_name}!"
         await ctx.send(embed=embed)
         return
 
-    if member.name in users:
-        embed.color = discord.Colour.dark_blue()
-        embed.title = f"I'm already tracking {member.display_name}!"
-        embed.description = "User already tracked"
-        await ctx.send(embed=embed)
-    else:
-        # start tracking this username and userid
-        if member.id not in tracked_users:
-            tracked_users[member.id] = []
-        users.append([member.name, member.display_name])
-        embed.color = discord.Colour.green()
-        embed.title = f"Now listening to {member.display_name}'s status changes!"
-        embed.description = "Listening successful"
-        his_json = {"tracked_users": tracked_users, "users": users}
-        with open(HISTORY, "w") as fp:
-            json.dump(his_json, fp)
-        await ctx.send(embed=embed)
+    # start tracking this username and userid
+    if member.id not in tracked_users:
+        tracked_users[member.id] = []
+    users.append([member.name, member.display_name])
+    embed.color = discord.Colour.green()
+    embed.title = f"Now listening to {member.display_name}'s status changes!"
+    embed.description = "Listening successful"
+    his_json = {"tracked_users": tracked_users, "users": users}
+    with open(HISTORY, "w") as fp:
+        json.dump(his_json, fp)
+    await ctx.send(embed=embed)
 
 
 @listen.error
 async def listen_error(ctx, error):
-    # if listen fails to find user raise this error
-    embed = discord.Embed(
-        title="Member not found. Please mention a valid member!",
-        color=discord.Colour.red(),
-        description="Member not found",
-    )
-    if isinstance(error, commands.BadArgument):
-        await ctx.send(embed=embed)
-    else:
-        raise error
-
-
-status_emojis = {
-    "online": "🟢",
-    "idle": "🟡",
-    "dnd": "🔴",
-    "offline": "⚫",
-}
+    await ctx.send(embed=EMBED_USER_NOT_FOUND)
 
 
 @bot.command()
@@ -135,30 +119,12 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
     """Shows status changes for a user by mention or plain username."""
     embed = discord.Embed(color=discord.Colour.red())
     if query is None:
-        embed.title = "Specify a member to show their status changes!"
-        embed.description = "Member not specified"
-        await ctx.send(embed=embed)
+        await ctx.send(embed=EMBED_NON_USER)
         return
 
-    member = None
-    try:
-        member = await commands.MemberConverter().convert(ctx, query)
-    except commands.BadArgument:
-        # Conversion failed, so we'll try a manual lookup
-        query_clean = query.strip()
-        if query_clean.startswith("\\@"):
-            query_clean = query_clean[2:]
-        elif query_clean.startswith("@"):
-            query_clean = query_clean[1:]
-        member = discord.utils.find(
-            lambda m: m.name.lower() == query_clean.lower() or m.display_name.lower() == query_clean.lower(),
-            ctx.guild.members,
-        )
-
+    member = await find_user(ctx, query=query)
     if member is None:
-        embed.title = "Couldn't find that user!"
-        embed.description = "User not found"
-        await ctx.send(embed=embed)
+        await ctx.send(embed=EMBED_USER_NOT_FOUND)
         return
 
     if not any(member.name == user[0] for user in users):
@@ -189,7 +155,7 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
     message_lines = reversed(message_lines)
     message_str = "\n".join(message_lines)
     message_send = message_str
-    embed.color = 0x61DBFB
+    embed.color = discord.Colour.blurple()
 
     if not show_all:
         message_send = "\n".join(message_str.split("\n")[:10])
@@ -202,6 +168,26 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
     his_json = {"tracked_users": tracked_users, "users": users}
     with open(HISTORY, "w") as fp:
         json.dump(his_json, fp)
+
+
+@bot.command()
+async def daygraph(ctx, *, query):
+    member = await find_user(ctx, query=query)
+    embed = discord.Embed(color=discord.Colour.red())
+    if member.bot:
+        await ctx.send(embed=EMBED_BOT_USER)
+        return
+    if member is None:
+        await ctx.send(embed=EMBED_USER_NOT_FOUND)
+        return
+
+    tz = timezone(timedelta(hours=2))
+    now = datetime.now(tz)
+    one_day_ago = now - timedelta(days=1)
+    entries = tracked_users[member.id]
+    day_entries = [entry for entry in entries if datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z") >= one_day_ago]
+    await ctx.send(day_entries)
+    return
 
 
 @bot.command()
@@ -219,21 +205,8 @@ async def stop(ctx, *, query: str = None):
     embed.description = "leo will call this for sure"
     await ctx.send(embed=embed)
     return
-    member = None
-    try:
-        member = await commands.MemberConverter().convert(ctx, query)
-    except commands.BadArgument:
-        # Conversion failed, so we'll try a manual lookup
-        query_clean = query.strip()
-        if query_clean.startswith("\\@"):
-            query_clean = query_clean[2:]
-        elif query_clean.startswith("@"):
-            query_clean = query_clean[1:]
-        member = discord.utils.find(
-            lambda m: m.name.lower() == query_clean.lower() or m.display_name.lower() == query_clean.lower(),
-            ctx.guild.members,
-        )
 
+    member = await find_user(ctx, query=query)
     if member is None:
         embed.color = discord.Colour.red()
         embed.title = "Failed to find user"
@@ -263,11 +236,7 @@ async def stop(ctx, *, query: str = None):
 
 @stop.error
 async def stop_error(ctx, error):
-    embed = discord.Embed()
-    embed.color = discord.Colour.red()
-    embed.title = "Failed to find user"
-    embed.description = "invalid user"
-    await ctx.send(embed=embed)
+    await ctx.send(embed=EMBED_USER_NOT_FOUND)
 
 
 @bot.event
@@ -279,16 +248,16 @@ async def on_presence_update(before: discord.Member, after: discord.Member):
         if last_status == str(after.status):
             return
 
-    if before.status != after.status:
-        timestamp = datetime.now(timezone(timedelta(hours=2)))
-        tracked_users[after.id].append(
-            (timestamp.strftime("%Y-%m-%d %H:%M:%S %Z"), str(before.status), str(after.status))
-        )
-        print(tracked_users[after.id][-1])
-        print(f"Recorded change for {after.display_name}: {before.status} -> {after.status} at {timestamp}")
-        his_json = {"tracked_users": tracked_users, "users": users}
-        with open(HISTORY, "w") as fp:
-            json.dump(his_json, fp)
+    if before.status == after.status:
+        return
+
+    timestamp = datetime.now(timezone(timedelta(hours=2)))
+    tracked_users[after.id].append((timestamp.strftime("%Y-%m-%d %H:%M:%S %Z"), str(before.status), str(after.status)))
+    print(tracked_users[after.id][-1])
+    print(f"Recorded change for {after.display_name}: {before.status} -> {after.status} at {timestamp}")
+    his_json = {"tracked_users": tracked_users, "users": users}
+    with open(HISTORY, "w") as fp:
+        json.dump(his_json, fp)
 
 
 @bot.command()
@@ -322,7 +291,7 @@ async def list(ctx):
     """list all tracked users"""
     embed = discord.Embed(
         title="Users currently tracked:",
-        color=0x61DBFB,
+        color=discord.Colour.blurple(),
     )
     str_to_send = ""
     for user in users:
@@ -341,38 +310,19 @@ async def tracked(ctx, *, query: str = None):
     embed = discord.Embed()
     embed.color = discord.Colour.red()
     if query is None:
-        embed.title = "Specify a member to show their status changes!"
-        embed.description = "Member not specified"
-        await ctx.send(embed=embed)
+        await ctx.send(embed=EMBED_NON_USER)
         return
 
-    member = None
-    try:
-        member = await commands.MemberConverter().convert(ctx, query)
-    except commands.BadArgument:
-        # Conversion failed, so we'll try a manual lookup
-        query_clean = query.strip()
-        if query_clean.startswith("\\@"):
-            query_clean = query_clean[2:]
-        elif query_clean.startswith("@"):
-            query_clean = query_clean[1:]
-        member = discord.utils.find(
-            lambda m: m.name.lower() == query_clean.lower() or m.display_name.lower() == query_clean.lower(),
-            ctx.guild.members,
-        )
-
+    member = await find_user(ctx, query=query)
     if member is None:
-        embed.title = "Couldn't find that user."
-        await ctx.send(embed=embed)
+        await ctx.send(embed=EMBED_USER_NOT_FOUND)
         return
     if any(str(member) in sublist for sublist in users):
-        embed.title = "✅"
+        embed = EMBED_USER_TRACKED
         embed.description = f"{member.name} is tracked"
-        embed.color = discord.Colour.green()
     else:
-        embed.title = "❌"
+        embed = EMBED_USER_NOT_TRACKED
         embed.description = f"{member.name} is NOT tracked"
-        embed.color = discord.Colour.red()
 
     await ctx.send(embed=embed)
 
