@@ -2,4 +2,9 @@
 venv/
 .env
 env/
+__pycache__/
 history.json
+*.png
+*.jpg
+*.log
+ronpasta.txt

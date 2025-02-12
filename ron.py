@@ -3,23 +3,35 @@ from discord.ext import commands, tasks
 import os
 from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta
-import json
+import json, logging
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from misc import Miscellaneous
 from util import (
     find_user,
+    open_data,
+    save_data,
     EMBED_BOT_USER,
     EMBED_ALREADY_TRACKED,
     EMBED_USER_NOT_FOUND,
     EMBED_NON_USER,
     EMBED_USER_TRACKED,
     EMBED_USER_NOT_TRACKED,
+    STATE_LABELS,
+    INV_STATE_LABELS,
+    STATE_COLORS,
+    HISTORY,
+    STATUS_EMOJIS,
+    WELCOME,
 )
 
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
-HISTORY = "history.json"
+
+# logging.getLogger("discord").setLevel(logging.CRITICAL)
+# logging.basicConfig(filename="app.log", level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
+# to disable log use logging.disable(logging.CRITICAL)
+# logging.disable(logging.CRITICAL)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -29,32 +41,12 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 # bot.remove_command("help")
 
-status_emojis = {
-    "online": "🟢",
-    "idle": "🟡",
-    "dnd": "🔴",
-    "offline": "⚫",
-}
-
-state_labels = {3: "online", 2: "idle", 1: "dnd", 0: "offline"}
-inv_state_labels = {v: k for k, v in state_labels.items()}
-state_colors = {3: "#3ba55d", 2: "#faa81a", 1: "#ed4245", 0: "#747f8d"}
-
-try:
-    with open(HISTORY, "r") as f:  # Open in read mode
-        his_json = json.load(f)
-        tracked_users = {int(k): v for k, v in his_json.get("tracked_users", {}).items()}
-        users = his_json.get("users", [])
-
-except (FileNotFoundError, json.JSONDecodeError):  # Handle missing file or bad JSON
-    tracked_users = {}
-    users = []
-
-print(users)
+tracked_users, users = open_data()
 
 
 @bot.event
 async def on_ready():
+    print(WELCOME)
     print(f"We have logged in as {bot.user}")
     cleanup.start()
     size_limit.start()
@@ -71,8 +63,15 @@ async def on_message(message):
 
 
 @bot.command()
-async def listen(ctx, *, query: str = None):
+async def listen(ctx, *, query: str = None, call_all=False):
     """Listens to the presence of a user by mention or plain username."""
+    if not call_all:
+        author = ctx.author
+        try:
+            logging.info(f"author: {author.id}, {author.name}, {author.display_name} called !listen")
+        except:
+            pass
+
     embed = discord.Embed(color=discord.Colour.red())
     if query is None:
         await ctx.send(embed=EMBED_INVALID_USER)
@@ -111,11 +110,18 @@ async def listen(ctx, *, query: str = None):
 @listen.error
 async def listen_error(ctx, error):
     await ctx.send(embed=EMBED_USER_NOT_FOUND)
+    logging.error(error)
 
 
 @bot.command()
 async def show(ctx, *, query: str = None, show_all: bool = False):
     """Shows status changes for a user by mention or plain username."""
+    if not show_all:
+        author = ctx.author
+        try:
+            logging.info(f"author: {author.id}, {author.name}, {author.display_name} called !show")
+        except:
+            pass
     embed = discord.Embed(color=discord.Colour.red())
     if query is None:
         await ctx.send(embed=EMBED_NON_USER)
@@ -143,8 +149,8 @@ async def show(ctx, *, query: str = None, show_all: bool = False):
     embed = discord.Embed()
     message_lines = []
     for timestamp, old_status, new_status in changes:
-        old_icon = status_emojis.get(old_status, "")
-        new_icon = status_emojis.get(new_status, "")
+        old_icon = STATUS_EMOJIS.get(old_status, "")
+        new_icon = STATUS_EMOJIS.get(new_status, "")
         timestamp_clean = timestamp.replace("UTC", "").strip()
         dt = datetime.strptime(timestamp_clean, "%Y-%m-%d %H:%M:%S %z")
         formatted_timestamp = dt.strftime("%Y-%m-%d %H:%M")
@@ -192,9 +198,9 @@ async def daygraph(ctx, *, query):
     ]
 
     # if there are no entries, notify user
-    if not day_entries:
+    if not day_entries or len(entries) == 0:
         await ctx.send(
-            embed=discord.Embed(title="No status data for the last 24 hours.", color=discord.Colour.blurple),
+            embed=discord.Embed(title="No status data for the last 24 hours.", color=discord.Colour.blurple()),
         )
         return
 
@@ -204,23 +210,22 @@ async def daygraph(ctx, *, query):
     time_values = [datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z").astimezone(tz) for entry in day_entries]
     states = []
     for entry in day_entries:
-        states.append(inv_state_labels[entry[2]])
+        states.append(INV_STATE_LABELS[entry[2]])
 
     plt.figure(figsize=(12, 5))
     plt.step(time_values, states, where="post", linestyle="--", color="black", alpha=0.7)
 
     # plot points
     for i in range(len(time_values)):
-        plt.scatter(time_values[i], states[i], color=state_colors[states[i]], s=100, edgecolors="black", zorder=3)
+        plt.scatter(time_values[i], states[i], color=STATE_COLORS[states[i]], s=100, edgecolors="black", zorder=3)
 
     ax = plt.gca()
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=tz))
-    #ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
     ax.xaxis.set_major_locator(mdates.MinuteLocator(byminute=[0, 30]))
     plt.xticks(rotation=45)
 
-    ytick_positions = sorted(state_labels.keys(), reverse=True)
-    ytick_labels = [state_labels[k] for k in ytick_positions]
+    ytick_positions = sorted(STATE_LABELS.keys(), reverse=True)
+    ytick_labels = [STATE_LABELS[k] for k in ytick_positions]
     plt.yticks(ytick_positions, ytick_labels)
 
     plt.xlabel("Time")
@@ -235,15 +240,31 @@ async def daygraph(ctx, *, query):
     await ctx.send(file=file)
 
 
+@daygraph.error
+async def daygraph_error(ctx, error):
+    await ctx.send(embed=EMBED_USER_NOT_FOUND)
+    logging.error(error)
+
+
 @bot.command()
 async def showall(ctx, *, query: str = None):
     """Shows the full status history of a user"""
+    author = ctx.author
+    try:
+        logging.info(f"author: {author.id}, {author.name}, {author.display_name} called !stop")
+    except:
+        pass
     await show(ctx, query=query, show_all=True)
 
 
 @bot.command()
 async def stop(ctx, *, query: str = None):
     """stop listening to a user"""
+    author = ctx.author
+    try:
+        logging.info(f"author: {author.id}, {author.name}, {author.display_name} called !stop")
+    except:
+        pass
     embed = discord.Embed()
     embed.color = discord.Colour.blurple()
     embed.title = "∅"
@@ -282,6 +303,7 @@ async def stop(ctx, *, query: str = None):
 @stop.error
 async def stop_error(ctx, error):
     await ctx.send(embed=EMBED_USER_NOT_FOUND)
+    logging.error(error)
 
 
 @bot.event
@@ -308,19 +330,23 @@ async def on_presence_update(before: discord.Member, after: discord.Member):
 @bot.command()
 async def listenall(ctx):
     """Starts tracking status changes for all members in the server."""
+    author = ctx.author
+    try:
+        logging.info(f"author: {author.id}, {author.name}, {author.display_name} called !listenall")
+    except:
+        pass
     guild = ctx.guild
     embed = discord.Embed(color=discord.Colour.red())
     if not guild:
         embed.title = "This command must be used in a server!"
         await ctx.send(embed)
         return
-
     count = 0
     for member in guild.members:
         if member.bot:  # Skip bots
             continue
         if not any(member.name == user[0] for user in users):
-            await listen(ctx, query=member.name)
+            await listen(ctx, query=member.name, call_all=True)
             count += 1
 
     embed = discord.Embed(
@@ -332,15 +358,26 @@ async def listenall(ctx):
 
 
 @bot.command()
-async def list(ctx):
+async def list(ctx, server: str = None):
     """list all tracked users"""
+    author = ctx.author
+    try:
+        logging.info(f"author: {author.id}, {author.name}, {author.display_name} called !list")
+    except:
+        pass
     embed = discord.Embed(
         title="Users currently tracked:",
         color=discord.Colour.blurple(),
     )
     str_to_send = ""
-    for user in users:
-        str_to_send += f"{user[0]}, **AKA**: {user[1]}\n"
+    if server.lower() != "server":
+        for user in users:
+            str_to_send += f"{user[0]}, **AKA**: {user[1]}\n"
+    else:
+        members = str(ctx.guild.members)
+        for user in (x for x in users if x[0] in members):
+            str_to_send += f"{user[0]}, **AKA**: {user[1]}\n"
+
     if str_to_send == "":
         embed.title = "I'm not listening to anyone at the moment."
         await ctx.send(embed=embed)
@@ -352,6 +389,11 @@ async def list(ctx):
 @bot.command()
 async def tracked(ctx, *, query: str = None):
     """Checks if a user is tracked"""
+    author = ctx.author
+    try:
+        logging.info(f"author: {author.id}, {author.name}, {author.display_name} called !tracked")
+    except:
+        pass
     embed = discord.Embed()
     embed.color = discord.Colour.red()
     if query is None:
@@ -414,4 +456,6 @@ async def size_limit():
     print(f"Size Limit Finished, {diff} bytes deleted.")
 
 
+# use bot.run(TOKEN,log_handler=None)
+# to turn off session logs
 bot.run(TOKEN)
