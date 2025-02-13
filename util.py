@@ -88,3 +88,4 @@ def save_data(tracked_users, users):
             json.dump(his_json, fp)
     except Exception as e:
         logging.CRITICAL("history was unable to save properly")
+        print("CRITICAL: history was unable to save properly")
