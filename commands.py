@@ -22,17 +22,18 @@ from util import (
     STATUS_EMOJIS,
 )
 
+
 class Commands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.cleanup.start()
         self.size_limit.start()
         self.tracked_users, self.users = open_data()
-    
+
     def cog_unload(self):
         self.cleanup.cancel()
         self.size_limit.cancel()
-    
+
     @commands.command()
     async def listen(self, ctx, *, query: str = None, call_all=False):
         """Listens to the presence of a user by mention or plain username."""
@@ -64,7 +65,7 @@ class Commands(commands.Cog):
             embed.title = f"I'm already tracking {member.display_name}!"
             await ctx.send(embed=embed)
             return
-        
+
         # start tracking this username and userid
         if member.id not in self.tracked_users:
             self.tracked_users[member.id] = []
@@ -72,15 +73,13 @@ class Commands(commands.Cog):
         embed.color = discord.Colour.green()
         embed.title = f"Now listening to {member.display_name}'s status changes!"
         embed.description = "Listening successful"
-        save_data(self.tracked_users,self.users)
+        save_data(self.tracked_users, self.users)
         await ctx.send(embed=embed)
-
 
     @listen.error
     async def listen_error(self, ctx, error):
         await ctx.send(embed=EMBED_USER_NOT_FOUND)
         logging.error(error)
-
 
     @commands.command()
     async def show(self, ctx, *, query: str = None, show_all: bool = False):
@@ -138,9 +137,8 @@ class Commands(commands.Cog):
             embed.title = f"Showing all status changes for {member.display_name}"
 
         embed.description = message_send
-        save_data(self.tracked_users,self.users)
+        save_data(self.tracked_users, self.users)
         await ctx.send(embed=embed)
-
 
     @commands.command()
     async def daygraph(self, ctx, *, query):
@@ -156,7 +154,9 @@ class Commands(commands.Cog):
         now = datetime.now(tz)
         one_day_ago = now - timedelta(days=1)
         entries = self.tracked_users.get(member.id, [])
-        day_entries = [entry for entry in entries if datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z") >= one_day_ago]
+        day_entries = [
+            entry for entry in entries if datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z") >= one_day_ago
+        ]
 
         day_entries = [
             entry
@@ -206,12 +206,10 @@ class Commands(commands.Cog):
         file = discord.File("fig.png", filename="fig.png")
         await ctx.send(file=file)
 
-
     @daygraph.error
     async def daygraph_error(self, ctx, error):
         await ctx.send(embed=EMBED_USER_NOT_FOUND)
         logging.error(error)
-
 
     @commands.command()
     async def showall(self, ctx, *, query: str = None):
@@ -222,7 +220,6 @@ class Commands(commands.Cog):
         except:
             pass
         await self.show(ctx, query=query, show_all=True)
-
 
     @commands.command()
     async def stop(self, ctx, *, query: str = None):
@@ -262,12 +259,10 @@ class Commands(commands.Cog):
         embed.description = "successfully to removed user"
         await ctx.send(embed=embed)
 
-
     @stop.error
     async def stop_error(self, ctx, error):
         await ctx.send(embed=EMBED_USER_NOT_FOUND)
         logging.error(error)
-
 
     @commands.Cog.listener()
     async def on_presence_update(self, before: discord.Member, after: discord.Member):
@@ -282,10 +277,11 @@ class Commands(commands.Cog):
             return
 
         timestamp = datetime.now(timezone(timedelta(hours=2)))
-        self.tracked_users[after.id].append((timestamp.strftime("%Y-%m-%d %H:%M:%S %Z"), str(before.status), str(after.status)))
+        self.tracked_users[after.id].append(
+            (timestamp.strftime("%Y-%m-%d %H:%M:%S %Z"), str(before.status), str(after.status))
+        )
         print(f"Recorded change for {after.display_name}: {before.status} -> {after.status} at {timestamp}")
-        save_data(self.tracked_users,self.users)
-
+        save_data(self.tracked_users, self.users)
 
     @commands.command()
     async def listenall(self, ctx):
@@ -316,7 +312,6 @@ class Commands(commands.Cog):
         )
         await ctx.send(embed=embed)
 
-
     @commands.command()
     async def list(self, ctx, server: str = None):
         """list all tracked users"""
@@ -345,7 +340,6 @@ class Commands(commands.Cog):
         embed.description = str_to_send
         await ctx.send(embed=embed)
 
-
     @commands.command()
     async def tracked(self, ctx, *, query: str = None):
         """Checks if a user is tracked"""
@@ -373,7 +367,6 @@ class Commands(commands.Cog):
 
         await ctx.send(embed=embed)
 
-
     @tasks.loop(hours=6)
     async def cleanup(self):
         tz = timezone(timedelta(hours=2))
@@ -384,11 +377,10 @@ class Commands(commands.Cog):
             self.tracked_users[user_id] = [
                 entry for entry in entries if datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z") >= three_days_ago
             ]
-        save_data(self.tracked_users,self.users)
+        save_data(self.tracked_users, self.users)
         after_size = os.path.getsize(HISTORY)
         diff = before_size - after_size
         print(f"Cleanup Finished, {diff} bytes deleted.")
-
 
     @tasks.loop(minutes=15)
     async def size_limit(self):
@@ -405,8 +397,8 @@ class Commands(commands.Cog):
         for user_id, entries in self.tracked_users.items():
             m = len(entries) // 2
             self.tracked_users[user_id] = [entries[m:]]
-            
-        save_data(self.tracked_users,self.users)
+
+        save_data(self.tracked_users, self.users)
         after_size = os.path.getsize(HISTORY)
         diff = before_size - after_size
         print(f"Size Limit Finished, {diff} bytes deleted.")
