@@ -21,7 +21,7 @@ from util import (
     HISTORY,
     STATUS_EMOJIS,
 )
-
+import time
 
 class Commands(commands.Cog):
     def __init__(self, bot):
@@ -149,14 +149,11 @@ class Commands(commands.Cog):
         if member is None:
             await ctx.send(embed=EMBED_USER_NOT_FOUND)
             return
-
+        await ctx.send("generating a graph might take a few seconds.")
         tz = timezone(timedelta(hours=2))
         now = datetime.now(tz)
         one_day_ago = now - timedelta(days=1)
         entries = self.tracked_users.get(member.id, [])
-        day_entries = [
-            entry for entry in entries if datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z") >= one_day_ago
-        ]
 
         day_entries = [
             entry

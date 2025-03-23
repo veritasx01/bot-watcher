@@ -66,7 +66,7 @@ async def find_user(ctx, *, query: str = None):
 
     return member
 
-
+# potentially causing a problem with cleanup
 def open_data():
     try:
         with open(HISTORY, "r") as f:
