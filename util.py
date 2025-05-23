@@ -29,6 +29,10 @@ EMBED_USER_NOT_TRACKED = discord.Embed(
     title="❌",
     color=discord.Colour.red(),
 )
+EMBED_USER_NOT_TRACKED_DETAILED = discord.Embed(
+    title="User not tracked by the bot,\nyou cannot access history without the bot listening to the user first",
+    color=discord.Colour.red(),
+)
 STATE_LABELS = {3: "online", 2: "idle", 1: "dnd", 0: "offline"}
 INV_STATE_LABELS = {v: k for k, v in STATE_LABELS.items()}
 STATE_COLORS = {3: "#3ba55d", 2: "#faa81a", 1: "#ed4245", 0: "#747f8d"}
@@ -87,5 +91,5 @@ def save_data(tracked_users, users):
         with open(HISTORY, "w") as fp:
             json.dump(his_json, fp)
     except Exception as e:
-        logging.CRITICAL("history was unable to save properly")
-        print("CRITICAL: history was unable to save properly")
+        logging.CRITICAL(f"history was unable to save properly, {e}")
+        print(f"CRITICAL: history was unable to save properly, {e}")

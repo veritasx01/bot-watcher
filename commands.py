@@ -15,13 +15,19 @@ from util import (
     EMBED_NON_USER,
     EMBED_USER_TRACKED,
     EMBED_USER_NOT_TRACKED,
+    EMBED_USER_NOT_TRACKED_DETAILED,
     STATE_LABELS,
     INV_STATE_LABELS,
     STATE_COLORS,
     HISTORY,
     STATUS_EMOJIS,
 )
-import time
+from dotenv import load_dotenv
+import asyncio
+
+load_dotenv()
+ID = os.getenv("ID")
+
 
 class Commands(commands.Cog):
     def __init__(self, bot):
@@ -150,7 +156,7 @@ class Commands(commands.Cog):
             await ctx.send(embed=EMBED_USER_NOT_FOUND)
             return
         await ctx.send("generating a graph might take a few seconds.")
-        tz = timezone(timedelta(hours=2))
+        tz = timezone(timedelta(hours=3))
         now = datetime.now(tz)
         one_day_ago = now - timedelta(days=1)
         entries = self.tracked_users.get(member.id, [])
@@ -175,6 +181,9 @@ class Commands(commands.Cog):
         states = []
         for entry in day_entries:
             states.append(INV_STATE_LABELS[entry[2]])
+        
+        time_values.append(datetime.now().astimezone(tz));
+        states.append(INV_STATE_LABELS[day_entries[-1][2]])
 
         plt.figure(figsize=(12, 5))
         plt.step(time_values, states, where="post", linestyle="--", color="black", alpha=0.7)
@@ -220,18 +229,16 @@ class Commands(commands.Cog):
 
     @commands.command()
     async def stop(self, ctx, *, query: str = None):
-        """stop listening to a user"""
+        """stop listening to a user\nbut not erasing their history"""
         author = ctx.author
-        try:
-            logging.info(f"author: {author.id}, {author.name}, {author.display_name} called !stop")
-        except:
-            pass
+        logging.info(f"author: {author.id}, {author.name}, {author.display_name} called !stop")
         embed = discord.Embed()
         embed.color = discord.Colour.blurple()
         embed.title = "∅"
-        embed.description = "leo will call this for sure"
-        await ctx.send(embed=embed)
-
+        embed.description = "only admins can use this command."
+        if str(ctx.author.id) != ID:
+            await ctx.send(embed=embed)
+            return
         member = await find_user(ctx, query=query)
         if member is None:
             embed.color = discord.Colour.red()
@@ -239,7 +246,6 @@ class Commands(commands.Cog):
             embed.description = "failed to locate user"
             await ctx.send(embed=embed)
             return
-
         try:
             self.users = [user for user in self.users if user[0] != str(member.name)]
             save_data(self.tracked_users, self.users)
@@ -265,6 +271,8 @@ class Commands(commands.Cog):
     async def on_presence_update(self, before: discord.Member, after: discord.Member):
         if after.id not in self.tracked_users:
             return
+        # self.users should be a dict not an array of a 2-tuple
+        # without a check here the !stop command is cosmetic
         if self.tracked_users[after.id]:
             last_status = self.tracked_users[after.id][-1][2]
             if last_status == str(after.status):
@@ -322,7 +330,7 @@ class Commands(commands.Cog):
             color=discord.Colour.blurple(),
         )
         str_to_send = ""
-        if server is None or server.lower() != "server":
+        if author.id == ID and (server is None or server.lower() != "server"):
             for user in self.users:
                 str_to_send += f"{user[0]}, **AKA**: {user[1]}\n"
         else:
@@ -341,10 +349,7 @@ class Commands(commands.Cog):
     async def tracked(self, ctx, *, query: str = None):
         """Checks if a user is tracked"""
         author = ctx.author
-        try:
-            logging.info(f"author: {author.id}, {author.name}, {author.display_name} called !tracked")
-        except:
-            pass
+        logging.info(f"author: {author.id}, {author.name}, {author.display_name} called !tracked")
         embed = discord.Embed()
         embed.color = discord.Colour.red()
         if query is None:
@@ -366,10 +371,10 @@ class Commands(commands.Cog):
 
     @tasks.loop(hours=6)
     async def cleanup(self):
-        tz = timezone(timedelta(hours=2))
+        tz = timezone(timedelta(hours=3))
         now = datetime.now(tz)
         three_days_ago = now - timedelta(days=3)
-        before_size = os.path.getsize(HISTORY)
+        before_size = await asyncio.to_thread(os.path.getsize, HISTORY)
         for user_id, entries in self.tracked_users.items():
             self.tracked_users[user_id] = [
                 entry for entry in entries if datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z") >= three_days_ago
@@ -384,16 +389,17 @@ class Commands(commands.Cog):
         """Limit history size to 20mb"""
         # if you're scaling this bot you can put your data limit check in on_presence_change
         # which will prevent a potential attacker from adding statuses and overflowing your history file
-        file_size = os.path.getsize(HISTORY)
         twenty_megabytes = 20_000_000
+        file_size = await asyncio.to_thread(os.path.getsize, HISTORY)
+
         if file_size < twenty_megabytes:
-            print(f"No Size Limit needed, history is {file_size/1_000_000} megabytes")
+            print(f"No Size Limit needed, history is {file_size / 1_000_000} megabytes")
             return
 
-        before_size = os.path.getsize(HISTORY)
+        before_size = file_size 
         for user_id, entries in self.tracked_users.items():
             m = len(entries) // 2
-            self.tracked_users[user_id] = [entries[m:]]
+            self.tracked_users[user_id] = entries[m:]
 
         save_data(self.tracked_users, self.users)
         after_size = os.path.getsize(HISTORY)
