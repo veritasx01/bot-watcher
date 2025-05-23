@@ -66,7 +66,7 @@ class Commands(commands.Cog):
             await ctx.send(embed=EMBED_BOT_USER)
             return
 
-        if any(member.name == user[0] for user in self.users):
+        if member.name in self.users:
             embed = EMBED_ALREADY_TRACKED
             embed.title = f"I'm already tracking {member.display_name}!"
             await ctx.send(embed=embed)
@@ -75,7 +75,7 @@ class Commands(commands.Cog):
         # start tracking this username and userid
         if member.id not in self.tracked_users:
             self.tracked_users[member.id] = []
-        self.users.append([member.name, member.display_name])
+        self.users[member.name] = member.display_name
         embed.color = discord.Colour.green()
         embed.title = f"Now listening to {member.display_name}'s status changes!"
         embed.description = "Listening successful"
@@ -106,7 +106,7 @@ class Commands(commands.Cog):
             await ctx.send(embed=EMBED_USER_NOT_FOUND)
             return
 
-        if not any(member.name == user[0] for user in self.users):
+        if member.name not in self.users:
             embed.title = f"I'm not tracking {member.display_name}. Use !listen first!"
             embed.description = "User not tracked"
             await ctx.send(embed=embed)
@@ -247,7 +247,7 @@ class Commands(commands.Cog):
             await ctx.send(embed=embed)
             return
         try:
-            self.users = [user for user in self.users if user[0] != str(member.name)]
+            del self.users[member.name]
             save_data(self.tracked_users, self.users)
 
         except Exception as e:
@@ -271,8 +271,8 @@ class Commands(commands.Cog):
     async def on_presence_update(self, before: discord.Member, after: discord.Member):
         if after.id not in self.tracked_users:
             return
-        # self.users should be a dict not an array of a 2-tuple
-        # without a check here the !stop command is cosmetic
+        if after.name not in self.users:
+            return
         if self.tracked_users[after.id]:
             last_status = self.tracked_users[after.id][-1][2]
             if last_status == str(after.status):
@@ -281,7 +281,7 @@ class Commands(commands.Cog):
         if before.status == after.status:
             return
 
-        timestamp = datetime.now(timezone(timedelta(hours=2)))
+        timestamp = datetime.now(timezone(timedelta(hours=3)))
         self.tracked_users[after.id].append(
             (timestamp.strftime("%Y-%m-%d %H:%M:%S %Z"), str(before.status), str(after.status))
         )
@@ -306,7 +306,7 @@ class Commands(commands.Cog):
         for member in guild.members:
             if member.bot:  # Skip bots
                 continue
-            if not any(member.name == user[0] for user in self.users):
+            if  member.name not in self.users:
                 await self.listen(ctx, query=member.name, call_all=True)
                 count += 1
 
@@ -331,11 +331,14 @@ class Commands(commands.Cog):
         )
         str_to_send = ""
         if author.id == ID and (server is None or server.lower() != "server"):
-            for user in self.users:
-                str_to_send += f"{user[0]}, **AKA**: {user[1]}\n"
+            for user0, user1 in self.users.items():
+                str_to_send += f"{user0}, **AKA**: {user1}\n"
         else:
             members = str(ctx.guild.members)
-            for user in (x for x in self.users if x[0] in members):
+            new_users = []
+            for k,v in self.users.items():
+                new_users.append([k,v])
+            for user in (x for x in new_users if x[0] in members):
                 str_to_send += f"{user[0]}, **AKA**: {user[1]}\n"
 
         if str_to_send == "":
@@ -360,7 +363,7 @@ class Commands(commands.Cog):
         if member is None:
             await ctx.send(embed=EMBED_USER_NOT_FOUND)
             return
-        if any(str(member) in sublist for sublist in self.users):
+        if member in self.users:
             embed = EMBED_USER_TRACKED
             embed.description = f"{member.name} is tracked"
         else:

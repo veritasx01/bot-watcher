@@ -76,11 +76,11 @@ def open_data():
         with open(HISTORY, "r") as f:
             his_json = json.load(f)
             tracked_users = {int(k): v for k, v in his_json.get("tracked_users", {}).items()}
-            users = his_json.get("users", [])
+            users = his_json.get("users", {})
 
     except (FileNotFoundError, json.JSONDecodeError):
         tracked_users = {}
-        users = []
+        users = {}
 
     return tracked_users, users
 
