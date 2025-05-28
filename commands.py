@@ -16,6 +16,8 @@ from util import (
     EMBED_USER_TRACKED,
     EMBED_USER_NOT_TRACKED,
     EMBED_USER_NOT_TRACKED_DETAILED,
+    EMBED_CURRENT_TIMEZONE,
+    EMBED_CHANGED_TIMEZONE,
     STATE_LABELS,
     INV_STATE_LABELS,
     STATE_COLORS,
@@ -24,6 +26,7 @@ from util import (
 )
 from dotenv import load_dotenv
 import asyncio
+import pytz, json, aiofiles
 
 load_dotenv()
 ID = os.getenv("ID")
@@ -34,11 +37,29 @@ class Commands(commands.Cog):
         self.bot = bot
         self.cleanup.start()
         self.size_limit.start()
+        self.periodic_save.start()
+        self.tz = pytz.timezone("Etc/UTC")
+        self.need_saving = False;
+        with open("config.json", "r") as conf:
+            try:
+                conf_json = json.load(conf)
+                str_tz = conf_json["timezone"]
+                if str_tz not in pytz.all_timezones_set:
+                    print("timezone in config file not valid")
+                    str_tz = "Etc/UTC"
+                self.tz = pytz.timezone(str_tz)
+            except:
+                with open("config.json","w") as conf:
+                    conf.write(json.dumps({"timezone": str(self.tz)}))
+            finally:
+                print(f"Timezone set to {self.tz}")
+
         self.tracked_users, self.users = open_data()
 
     def cog_unload(self):
         self.cleanup.cancel()
         self.size_limit.cancel()
+        self.periodic_save.cancel()
 
     @commands.command()
     async def listen(self, ctx, *, query: str = None, call_all=False):
@@ -79,7 +100,7 @@ class Commands(commands.Cog):
         embed.color = discord.Colour.green()
         embed.title = f"Now listening to {member.display_name}'s status changes!"
         embed.description = "Listening successful"
-        save_data(self.tracked_users, self.users)
+        self.need_saving = True       
         await ctx.send(embed=embed)
 
     @listen.error
@@ -143,28 +164,27 @@ class Commands(commands.Cog):
             embed.title = f"Showing all status changes for {member.display_name}"
 
         embed.description = message_send
-        save_data(self.tracked_users, self.users)
+        self.need_saving = True
         await ctx.send(embed=embed)
 
     @commands.command()
     async def daygraph(self, ctx, *, query):
         member = await find_user(ctx, query=query)
-        if member.bot:
-            await ctx.send(embed=EMBED_BOT_USER)
-            return
         if member is None:
             await ctx.send(embed=EMBED_USER_NOT_FOUND)
             return
-        await ctx.send("generating a graph might take a few seconds.")
-        tz = timezone(timedelta(hours=3))
-        now = datetime.now(tz)
+        if member.bot:
+            await ctx.send(embed=EMBED_BOT_USER)
+            return
+        await ctx.send(f"generating a graph might take a few seconds, current timezone is {str(self.tz)}")
+        now = datetime.now(self.tz)
         one_day_ago = now - timedelta(days=1)
         entries = self.tracked_users.get(member.id, [])
 
         day_entries = [
             entry
             for entry in entries
-            if datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z").astimezone(tz) >= one_day_ago
+            if datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z").astimezone(self.tz) >= one_day_ago
         ]
 
         # if there are no entries, notify user
@@ -177,12 +197,14 @@ class Commands(commands.Cog):
         # sorting precaution, data should be already sorted but we sort it anyways
         day_entries.sort(key=lambda x: datetime.strptime(x[0], "%Y-%m-%d %H:%M:%S UTC%z"))
 
-        time_values = [datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z").astimezone(tz) for entry in day_entries]
+        time_values = [
+            datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z").astimezone(self.tz) for entry in day_entries
+        ]
         states = []
         for entry in day_entries:
             states.append(INV_STATE_LABELS[entry[2]])
-        
-        time_values.append(datetime.now().astimezone(tz));
+
+        time_values.append(datetime.now().astimezone(self.tz))
         states.append(INV_STATE_LABELS[day_entries[-1][2]])
 
         plt.figure(figsize=(12, 5))
@@ -193,7 +215,7 @@ class Commands(commands.Cog):
             plt.scatter(time_values[i], states[i], color=STATE_COLORS[states[i]], s=100, edgecolors="black", zorder=3)
 
         ax = plt.gca()
-        ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=tz))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=self.tz))
         ax.xaxis.set_major_locator(mdates.MinuteLocator(byminute=[0, 30]))
         plt.xticks(rotation=45)
 
@@ -248,7 +270,7 @@ class Commands(commands.Cog):
             return
         try:
             del self.users[member.name]
-            save_data(self.tracked_users, self.users)
+            await save_data(self.tracked_users, self.users)
 
         except Exception as e:
             embed.color = discord.Colour.red()
@@ -277,7 +299,6 @@ class Commands(commands.Cog):
             last_status = self.tracked_users[after.id][-1][2]
             if last_status == str(after.status):
                 return
-
         if before.status == after.status:
             return
 
@@ -286,7 +307,7 @@ class Commands(commands.Cog):
             (timestamp.strftime("%Y-%m-%d %H:%M:%S %Z"), str(before.status), str(after.status))
         )
         print(f"Recorded change for {after.display_name}: {before.status} -> {after.status} at {timestamp}")
-        save_data(self.tracked_users, self.users)
+        self.need_saving = True
 
     @commands.command()
     async def listenall(self, ctx):
@@ -306,7 +327,7 @@ class Commands(commands.Cog):
         for member in guild.members:
             if member.bot:  # Skip bots
                 continue
-            if  member.name not in self.users:
+            if member.name not in self.users:
                 await self.listen(ctx, query=member.name, call_all=True)
                 count += 1
 
@@ -330,14 +351,14 @@ class Commands(commands.Cog):
             color=discord.Colour.blurple(),
         )
         str_to_send = ""
-        if author.id == ID and (server is None or server.lower() != "server"):
+        if str(author.id) == ID and (server.lower() == "all"):
             for user0, user1 in self.users.items():
                 str_to_send += f"{user0}, **AKA**: {user1}\n"
         else:
             members = str(ctx.guild.members)
             new_users = []
-            for k,v in self.users.items():
-                new_users.append([k,v])
+            for k, v in self.users.items():
+                new_users.append([k, v])
             for user in (x for x in new_users if x[0] in members):
                 str_to_send += f"{user[0]}, **AKA**: {user[1]}\n"
 
@@ -347,6 +368,26 @@ class Commands(commands.Cog):
             return
         embed.description = str_to_send
         await ctx.send(embed=embed)
+    
+    @commands.command()
+    async def show_timezone(self,ctx):
+        embed = EMBED_CURRENT_TIMEZONE
+        embed.description = str(self.tz)
+        await ctx.send(embed=embed)
+    
+    @commands.command()
+    async def change_timezone(self, ctx, *, query: str = None):
+        if query not in pytz.all_timezones_set:
+            await ctx.send(f"Timezone {query} not valid")
+            return
+        last = self.tz
+        self.tz = pytz.timezone(query)
+        async with aiofiles.open("config.json","w") as conf:
+            await conf.write(json.dumps({"timezone": str(self.tz)}))
+        embed = EMBED_CHANGED_TIMEZONE
+        embed.title = f"Changed timezone {last} to {self.tz}"
+        await ctx.send(embed=embed)
+                
 
     @commands.command()
     async def tracked(self, ctx, *, query: str = None):
@@ -372,17 +413,23 @@ class Commands(commands.Cog):
 
         await ctx.send(embed=embed)
 
+    @tasks.loop(seconds=10)
+    async def periodic_save(self):
+        if not self.need_saving: 
+            return
+        await save_data(self.tracked_users, self.users)
+        self.need_saving = False
+
     @tasks.loop(hours=6)
     async def cleanup(self):
-        tz = timezone(timedelta(hours=3))
-        now = datetime.now(tz)
+        now = datetime.now(self.tz)
         three_days_ago = now - timedelta(days=3)
-        before_size = await asyncio.to_thread(os.path.getsize, HISTORY)
+        before_size = os.path.getsize(HISTORY)
         for user_id, entries in self.tracked_users.items():
             self.tracked_users[user_id] = [
                 entry for entry in entries if datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z") >= three_days_ago
             ]
-        save_data(self.tracked_users, self.users)
+        self.need_saving = True
         after_size = os.path.getsize(HISTORY)
         diff = before_size - after_size
         print(f"Cleanup Finished, {diff} bytes deleted.")
@@ -393,18 +440,18 @@ class Commands(commands.Cog):
         # if you're scaling this bot you can put your data limit check in on_presence_change
         # which will prevent a potential attacker from adding statuses and overflowing your history file
         twenty_megabytes = 20_000_000
-        file_size = await asyncio.to_thread(os.path.getsize, HISTORY)
+        file_size = os.path.getsize(HISTORY)
 
         if file_size < twenty_megabytes:
             print(f"No Size Limit needed, history is {file_size / 1_000_000} megabytes")
             return
 
-        before_size = file_size 
+        before_size = file_size
         for user_id, entries in self.tracked_users.items():
             m = len(entries) // 2
             self.tracked_users[user_id] = entries[m:]
 
-        save_data(self.tracked_users, self.users)
+        self.need_saving = True
         after_size = os.path.getsize(HISTORY)
         diff = before_size - after_size
         print(f"Size Limit Finished, {diff} bytes deleted.")

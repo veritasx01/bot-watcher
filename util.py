@@ -2,7 +2,7 @@ from discord.ext import commands
 import discord
 import json
 import logging
-import asyncio
+import aiofiles
 
 EMBED_BOT_USER = discord.Embed(
     title="Cannot track a bot user",
@@ -32,6 +32,13 @@ EMBED_USER_NOT_TRACKED = discord.Embed(
 EMBED_USER_NOT_TRACKED_DETAILED = discord.Embed(
     title="User not tracked by the bot,\nyou cannot access history without the bot listening to the user first",
     color=discord.Colour.red(),
+)
+EMBED_CURRENT_TIMEZONE = discord.Embed(
+    title="The current timezone set for the bot is: ",
+    color=discord.Colour.blue(),
+)
+EMBED_CHANGED_TIMEZONE = discord.Embed(
+    color=discord.Colour.yellow(),
 )
 STATE_LABELS = {3: "online", 2: "idle", 1: "dnd", 0: "offline"}
 INV_STATE_LABELS = {v: k for k, v in STATE_LABELS.items()}
@@ -70,7 +77,6 @@ async def find_user(ctx, *, query: str = None):
 
     return member
 
-# potentially causing a problem with cleanup
 def open_data():
     try:
         with open(HISTORY, "r") as f:
@@ -84,8 +90,13 @@ def open_data():
 
     return tracked_users, users
 
+async def save_data(tracked_users, users):
+    async with aiofiles.open(HISTORY, "w") as f:
+        await f.write(json.dumps({"tracked_users": tracked_users, "users": users}))
 
-def save_data(tracked_users, users):
+
+# these operations are sync, not ideal
+def sync_save_data(tracked_users, users):
     try:
         his_json = {"tracked_users": tracked_users, "users": users}
         with open(HISTORY, "w") as fp:
