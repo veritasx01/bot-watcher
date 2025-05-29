@@ -3,6 +3,7 @@ from discord.ext import commands
 import os
 from dotenv import load_dotenv
 from commands import Commands
+import logging
 from util import (
     WELCOME,
 )
@@ -10,8 +11,8 @@ from util import (
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
 
-# logging.getLogger("discord").setLevel(logging.CRITICAL)
-# logging.basicConfig(filename="app.log", level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.getLogger("discord").setLevel(logging.WARNING)
+logging.basicConfig(filename="app.log", level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 # to disable log use logging.disable(logging.CRITICAL)
 # logging.disable(logging.CRITICAL)
 

@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 import logging
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import time
 from util import (
     find_user,
     open_data,
@@ -34,6 +35,7 @@ ID = os.getenv("ID")
 
 class Commands(commands.Cog):
     def __init__(self, bot):
+        self.file_lock = asyncio.Lock()
         self.bot = bot
         self.cleanup.start()
         self.size_limit.start()
@@ -351,7 +353,7 @@ class Commands(commands.Cog):
             color=discord.Colour.blurple(),
         )
         str_to_send = ""
-        if str(author.id) == ID and (server.lower() == "all"):
+        if str(author.id) == ID and (server and server.lower() == "all"):
             for user0, user1 in self.users.items():
                 str_to_send += f"{user0}, **AKA**: {user1}\n"
         else:
@@ -413,15 +415,20 @@ class Commands(commands.Cog):
 
         await ctx.send(embed=embed)
 
-    @tasks.loop(seconds=10)
+    @tasks.loop(minutes=1)
     async def periodic_save(self):
+        start = time.time()
         if not self.need_saving: 
+            logging.warning(f"save(not triggered) took {(time.time()-start):.3f} seconds")
             return
-        await save_data(self.tracked_users, self.users)
-        self.need_saving = False
+        async with self.file_lock:
+            await save_data(self.tracked_users, self.users)
+            self.need_saving = False
+            logging.warning(f"save took {(time.time()-start):.3f} seconds")
 
-    @tasks.loop(hours=6)
+    @tasks.loop(hours=24)
     async def cleanup(self):
+        start = time.time()
         now = datetime.now(self.tz)
         three_days_ago = now - timedelta(days=3)
         before_size = os.path.getsize(HISTORY)
@@ -433,25 +440,30 @@ class Commands(commands.Cog):
         after_size = os.path.getsize(HISTORY)
         diff = before_size - after_size
         print(f"Cleanup Finished, {diff} bytes deleted.")
+        logging.warning(f"cleanup took {(time.time()-start):.3f} seconds")
 
-    @tasks.loop(minutes=15)
+    @tasks.loop(minutes=1)
     async def size_limit(self):
         """Limit history size to 20mb"""
         # if you're scaling this bot you can put your data limit check in on_presence_change
         # which will prevent a potential attacker from adding statuses and overflowing your history file
-        twenty_megabytes = 20_000_000
-        file_size = os.path.getsize(HISTORY)
+        start = time.time()
+        async with self.file_lock:
+            twenty_megabytes = 20_000_000
+            file_size = os.path.getsize(HISTORY)
 
-        if file_size < twenty_megabytes:
-            print(f"No Size Limit needed, history is {file_size / 1_000_000} megabytes")
-            return
+            if file_size < twenty_megabytes:
+                print(f"[{datetime.now().astimezone(self.tz).strftime("%H:%M:%S UTC%z")}] No Size Limit needed, history is {(file_size / 1_000_000):.6f} megabytes")
+                logging.warning(f"size limit took {(time.time()-start):.3f} seconds")
+                return
 
-        before_size = file_size
-        for user_id, entries in self.tracked_users.items():
-            m = len(entries) // 2
-            self.tracked_users[user_id] = entries[m:]
+            before_size = file_size
+            for user_id, entries in self.tracked_users.items():
+                m = len(entries) // 2
+                self.tracked_users[user_id] = entries[m:]
 
-        self.need_saving = True
-        after_size = os.path.getsize(HISTORY)
-        diff = before_size - after_size
-        print(f"Size Limit Finished, {diff} bytes deleted.")
+            self.need_saving = True
+            after_size = os.path.getsize(HISTORY)
+            diff = before_size - after_size
+            logging.warning(f"size limit(triggered) took {(time.time()-start):.3f} seconds")
+            print(f"Size Limit Finished, {diff} bytes deleted.")
