@@ -11,10 +11,10 @@ from util import (
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
 
-logging.getLogger("discord").setLevel(logging.WARNING)
-logging.basicConfig(filename="app.log", level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.getLogger("discord").setLevel(logging.ERROR)
+logging.basicConfig(filename="app.log", level=logging.ERROR, format="%(asctime)s - %(levelname)s - %(message)s")
 # to disable log use logging.disable(logging.CRITICAL)
-# logging.disable(logging.CRITICAL)
+logging.disable(logging.CRITICAL)
 
 intents = discord.Intents.default()
 intents.message_content = True

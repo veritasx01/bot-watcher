@@ -16,7 +16,6 @@ from util import (
     EMBED_NON_USER,
     EMBED_USER_TRACKED,
     EMBED_USER_NOT_TRACKED,
-    EMBED_USER_NOT_TRACKED_DETAILED,
     EMBED_CURRENT_TIMEZONE,
     EMBED_CHANGED_TIMEZONE,
     STATE_LABELS,
@@ -30,7 +29,11 @@ import asyncio
 import pytz, json, aiofiles
 
 load_dotenv()
-ID = os.getenv("ID")
+ID = 0
+try: 
+    ID = os.getenv("ID")
+except:
+    pass
 
 
 class Commands(commands.Cog):
@@ -419,28 +422,26 @@ class Commands(commands.Cog):
     async def periodic_save(self):
         start = time.time()
         if not self.need_saving: 
-            logging.warning(f"save(not triggered) took {(time.time()-start):.3f} seconds")
             return
         async with self.file_lock:
             await save_data(self.tracked_users, self.users)
             self.need_saving = False
-            logging.warning(f"save took {(time.time()-start):.3f} seconds")
 
     @tasks.loop(hours=24)
     async def cleanup(self):
         start = time.time()
         now = datetime.now(self.tz)
         three_days_ago = now - timedelta(days=3)
-        before_size = os.path.getsize(HISTORY)
-        for user_id, entries in self.tracked_users.items():
-            self.tracked_users[user_id] = [
-                entry for entry in entries if datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z") >= three_days_ago
-            ]
-        self.need_saving = True
-        after_size = os.path.getsize(HISTORY)
+        async with self.file_lock:
+            before_size = await asyncio.to_thread(os.path.getsize, HISTORY)
+            for user_id, entries in self.tracked_users.items():
+                self.tracked_users[user_id] = [
+                    entry for entry in entries if datetime.strptime(entry[0], "%Y-%m-%d %H:%M:%S UTC%z") >= three_days_ago
+                ]
+            self.need_saving = True
+            after_size = await asyncio.to_thread(os.path.getsize, HISTORY)
         diff = before_size - after_size
         print(f"Cleanup Finished, {diff} bytes deleted.")
-        logging.warning(f"cleanup took {(time.time()-start):.3f} seconds")
 
     @tasks.loop(minutes=1)
     async def size_limit(self):
@@ -448,13 +449,12 @@ class Commands(commands.Cog):
         # if you're scaling this bot you can put your data limit check in on_presence_change
         # which will prevent a potential attacker from adding statuses and overflowing your history file
         start = time.time()
+        twenty_megabytes = 20_000_000
         async with self.file_lock:
-            twenty_megabytes = 20_000_000
-            file_size = os.path.getsize(HISTORY)
+            file_size = await asyncio.to_thread(os.path.getsize, HISTORY)
 
             if file_size < twenty_megabytes:
                 print(f"[{datetime.now().astimezone(self.tz).strftime("%H:%M:%S UTC%z")}] No Size Limit needed, history is {(file_size / 1_000_000):.6f} megabytes")
-                logging.warning(f"size limit took {(time.time()-start):.3f} seconds")
                 return
 
             before_size = file_size
@@ -463,7 +463,6 @@ class Commands(commands.Cog):
                 self.tracked_users[user_id] = entries[m:]
 
             self.need_saving = True
-            after_size = os.path.getsize(HISTORY)
+            after_size = await asyncio.to_thread(os.path.getsize, HISTORY)
             diff = before_size - after_size
-            logging.warning(f"size limit(triggered) took {(time.time()-start):.3f} seconds")
             print(f"Size Limit Finished, {diff} bytes deleted.")

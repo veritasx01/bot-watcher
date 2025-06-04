@@ -4,7 +4,7 @@ venv/
 env/
 __pycache__/
 history.json
-*.png
+fig.png
 *.jpg
 *.log
-ronpasta.txt
+config.json
