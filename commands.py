@@ -50,14 +50,14 @@ class Commands(commands.Cog):
                 conf_json = json.load(conf)
                 str_tz = conf_json["timezone"]
                 if str_tz not in pytz.all_timezones_set:
-                    print("timezone in config file not valid")
+                    logging.info("timezone in config file not valid")
                     str_tz = "Etc/UTC"
                 self.tz = pytz.timezone(str_tz)
             except:
                 with open("config.json","w") as conf:
                     conf.write(json.dumps({"timezone": str(self.tz)}))
             finally:
-                print(f"Timezone set to {self.tz}")
+                logging.info(f"Timezone set to {self.tz}")
 
         self.tracked_users, self.users = open_data()
 
@@ -311,7 +311,7 @@ class Commands(commands.Cog):
         self.tracked_users[after.id].append(
             (timestamp.strftime("%Y-%m-%d %H:%M:%S %Z"), str(before.status), str(after.status))
         )
-        print(f"Recorded change for {after.display_name}: {before.status} -> {after.status} at {timestamp}")
+        logging.info(f"Recorded change for {after.display_name}: {before.status} -> {after.status} at {timestamp}")
         self.need_saving = True
 
     @commands.command()
@@ -426,6 +426,9 @@ class Commands(commands.Cog):
         async with self.file_lock:
             await save_data(self.tracked_users, self.users)
             self.need_saving = False
+            now = time.time();
+            if (now-start > 0.01):
+                logging.warning(f"saving took longer than usual: {now-start} seconds")
 
     @tasks.loop(hours=24)
     async def cleanup(self):
@@ -441,9 +444,12 @@ class Commands(commands.Cog):
             self.need_saving = True
             after_size = await asyncio.to_thread(os.path.getsize, HISTORY)
         diff = before_size - after_size
-        print(f"Cleanup Finished, {diff} bytes deleted.")
+        now = time.time()
+        if (now-start > 0.1):
+            logging.warning(f"cleanup took longer than usual: {now-start} seconds")
+        logging.info(f"Cleanup Finished, {diff} bytes deleted.")
 
-    @tasks.loop(minutes=1)
+    @tasks.loop(minutes=10)
     async def size_limit(self):
         """Limit history size to 20mb"""
         # if you're scaling this bot you can put your data limit check in on_presence_change
@@ -454,7 +460,7 @@ class Commands(commands.Cog):
             file_size = await asyncio.to_thread(os.path.getsize, HISTORY)
 
             if file_size < twenty_megabytes:
-                print(f"[{datetime.now().astimezone(self.tz).strftime("%H:%M:%S UTC%z")}] No Size Limit needed, history is {(file_size / 1_000_000):.6f} megabytes")
+                logging.info(f"[{datetime.now().astimezone(self.tz).strftime("%H:%M:%S UTC%z")}] No Size Limit needed, history is {(file_size / 1_000_000):.6f} megabytes")
                 return
 
             before_size = file_size
@@ -465,4 +471,8 @@ class Commands(commands.Cog):
             self.need_saving = True
             after_size = await asyncio.to_thread(os.path.getsize, HISTORY)
             diff = before_size - after_size
-            print(f"Size Limit Finished, {diff} bytes deleted.")
+            logging.info(f"Size Limit Finished, {diff} bytes deleted.")
+            
+        now = time.time()
+        if (now-start > 0.1):
+            logging.warning(f"size_limit took longer than usual: {now-start} seconds")

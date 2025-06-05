@@ -11,10 +11,9 @@ from util import (
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
 
-logging.getLogger("discord").setLevel(logging.ERROR)
-logging.basicConfig(filename="app.log", level=logging.ERROR, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.getLogger("discord").setLevel(logging.INFO)
+logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 # to disable log use logging.disable(logging.CRITICAL)
-logging.disable(logging.CRITICAL)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -26,17 +25,22 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    await bot.add_cog(Commands(bot))
-    print(WELCOME)
-    print(f"Logged in as {bot.user}")
+    try:
+        await bot.add_cog(Commands(bot))
+        print(WELCOME)
+        print(f"Logged in as {bot.user}")
+    except Exception as e:
+        logging.error(f"Error in on_ready()\n{str(e)}")
 
 
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
         return
-
-    await bot.process_commands(message)
+    try:
+        await bot.process_commands(message)
+    except Exception as e:
+        logging.error(f"Error in on_message()\n{str(e)}")
 
 
 # use bot.run(TOKEN,log_handler=None)
